@@ -17,7 +17,7 @@ Plugin for [Oh My Fish][omf-link].
 ## Install
 
 ```fish
-$ omf install https://github.com/zimski/ssh_agent
+$ omf install https://github.com/altipard/ssh_agent
 ```
 
 
