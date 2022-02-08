@@ -1,16 +1,4 @@
-# SYNOPSIS
-#   ssh_agent [options]
-#
-# USAGE
-#   Options
-#
-
-setenv SSH_ENV $HOME/.ssh/environment
-
-function uninstall --on-event uninstall_ssh_agent
-
-end
-
+set SSH_ENV "$HOME/.ssh/environment"
 
 function addsshkeys
   set added_keys (ssh-add -l)
@@ -21,68 +9,86 @@ function addsshkeys
   end
 end
 
-
-
-
-
 function start_agent
-  if [ -n "$SSH_AGENT_PID" ]
-        ps -ef | grep $SSH_AGENT_PID | grep ssh-agent > /dev/null
-        if [ $status -eq 0 ]
-            test_identities
-        end
-  else
-      if [ -f $SSH_ENV ]
-            . $SSH_ENV > /dev/null
-        end
-      ps -ef | grep $SSH_AGENT_PID | grep -v grep | grep ssh-agent > /dev/null
-      if [ $status -eq 0 ]
-          test_identities
-      else
-        echo "Initializing new SSH agent ..."
-          ssh-agent -c | sed 's/^echo/#echo/' > $SSH_ENV
-        echo "succeeded"
-    chmod 600 $SSH_ENV 
-    . $SSH_ENV > /dev/null
-        addsshkeys
-  end
-  end
+    echo "Initialising new SSH agent..."
+    /usr/bin/ssh-agent -c | sed 's/^echo/#echo/' > $SSH_ENV
+    echo succeeded
+    chmod 600 "$SSH_ENV"
+    . "$SSH_ENV" > /dev/null
+    addsshkeys
 end
 
+function sshagent_findsockets
+	find /tmp -uid (id -u) -type s -name agent.\* 2>/dev/null
+end
 
-function test_identities                                                                                                                                                                
-    ssh-add -l | grep "The agent has no identities" > /dev/null
-    if [ $status -eq 0 ]
-        ssh-add
-        if [ $status -eq 2 ]
-            start_agent
+function sshagent_testsocket
+    if [ ! -x (command which ssh-add) ] ;
+        echo "ssh-add is not available; agent testing aborted"
+        return 1
+    end
+
+    if [ X"$argv[1]" != X ] ;
+    	set -xg SSH_AUTH_SOCK $argv[1]
+    end
+
+    if [ X"$SSH_AUTH_SOCK" = X ]
+    	return 2
+    end
+
+    if [ -S $SSH_AUTH_SOCK ] ;
+        ssh-add -l > /dev/null
+        if [ $status = 2 ] ;
+            echo "Socket $SSH_AUTH_SOCK is dead!  Deleting!"
+            rm -f $SSH_AUTH_SOCK
+            return 4
+        else ;
+            echo "Found ssh-agent $SSH_AUTH_SOCK"
+            return 0
         end
+    else ;
+        echo "$SSH_AUTH_SOCK is not a socket!"
+        return 3
     end
 end
 
 
-function fish_title
-    if [ $_ = 'fish' ]
-  echo (prompt_pwd)
-    else
-        echo $_
+function ssh_agent_init
+    # ssh agent sockets can be attached to a ssh daemon process or an
+    # ssh-agent process.
+
+    set -l AGENTFOUND 0
+
+    # Attempt to find and use the ssh-agent in the current environment
+    if sshagent_testsocket ;
+        set AGENTFOUND 1
     end
-end
 
+    # If there is no agent in the environment, search /tmp for
+    # possible agents to reuse before starting a fresh ssh-agent
+    # process.
+    if [ $AGENTFOUND = 0 ];
+        for agentsocket in (sshagent_findsockets)
+            if [ $AGENTFOUND != 0 ] ;
+	            break
+            end
+            if sshagent_testsocket $agentsocket ;
+	       set AGENTFOUND 1
+	    end
 
-# Source SSH settings, if they exist
-if status --is-interactive
-    if test -f "$SSH_ENV"
-        . "$SSH_ENV" > /dev/null
-        # Check if agent is still running, if not, start a new one
-        ps -ef | grep $SSH_AGENT_PID | grep "ssh-agent -c\$" > /dev/null; or start_agent;
-    else
-        echo "Environment file doesn't exist"
-        start_agent
+        end
     end
+
+    # If at this point we still haven't located an agent, it's time to
+    # start a new one
+    if [ $AGENTFOUND = 0 ] ;
+	    echo need to start a new agent
+	    start_agent
+      addsshkeys
+    end
+
+    # Finally, show what keys are currently in the agent
+    # ssh-add -l
 end
 
-
-function init --on-event init_ssh_agent
-  test_identities
-end
+ssh_agent_init
