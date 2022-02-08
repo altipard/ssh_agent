@@ -91,4 +91,7 @@ function ssh_agent_init
     # ssh-add -l
 end
 
-ssh_agent_init
+# Source SSH settings, if they exist
+if status --is-interactive
+  ssh_agent_init
+end
